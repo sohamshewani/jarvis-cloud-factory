@@ -2,8 +2,8 @@ name: Autonomous AI Cloud Factory
 
 on:
   schedule:
-    - cron: '0 * * * *'   # Runs every hour 24/7
-  workflow_dispatch:      # Also lets you click "Run" manually anytime
+    - cron: '*/5 * * * *'   # Fastest allowed GitHub interval (every 5 minutes)
+  workflow_dispatch:        # Also lets you trigger manually anytime
 
 jobs:
   build-child-ai:
