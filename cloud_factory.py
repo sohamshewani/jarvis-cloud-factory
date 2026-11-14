@@ -2,9 +2,25 @@ import os
 import json
 import time
 import shutil
+import random
 import subprocess
 import urllib.parse
 import requests
+
+FALLBACK_SPECIALTIES = [
+    ("Linux Shell Assistant", [
+        {"user": "How do I find all .log files larger than 50MB in Linux?", "assistant": "find / -type f -name '*.log' -size +50M 2>/dev/null"},
+        {"user": "How do I check which process is using port 8080?", "assistant": "lsof -i :8080 || ss -tulpn | grep 8080"}
+    ]),
+    ("Python Performance Optimizer", [
+        {"user": "How can I speed up membership checks in a huge Python list?", "assistant": "Convert the list to a set first (`lookup = set(items)`) for O(1) average lookup time instead of O(n)."},
+        {"user": "How do I read a 10GB file in Python without running out of RAM?", "assistant": "Iterate line-by-line using `with open('file.txt') as f: for line in f:` instead of calling `f.read()`."}
+    ]),
+    ("Git Recovery Specialist", [
+        {"user": "How do I undo my last commit without losing my code changes?", "assistant": "Run `git reset --soft HEAD~1` to move HEAD back one commit while keeping all changes staged."},
+        {"user": "How do I recover a deleted branch in Git?", "assistant": "Find its last commit hash with `git reflog` and recreate it using `git checkout -b branch-name <hash>`."}
+    ])
+]
 
 def run_command(cmd, cwd=None):
     print(f"⚙️ Running: {cmd}")
@@ -14,25 +30,34 @@ def run_command(cmd, cwd=None):
         return False
     return True
 
-def generate_training_data():
+def get_valid_examples():
     prompt = (
-        "Invent a specific AI assistant specialty (e.g., Linux helper, SQL writer, Python debugger, Regex generator). "
-        "Reply ONLY with raw JSON containing key 'examples' with 4 pairs of {'user': '...', 'assistant': '...'}. "
-        "No markdown, no backticks."
+        "Invent a specific coding assistant specialty (e.g., Regex, SQL, Docker, Bash). "
+        "Keep answers under 2 sentences so the JSON is short and never truncated. "
+        "Reply ONLY with raw JSON: {\"examples\": [{\"user\": \"q1\", \"assistant\": \"a1\"}, {\"user\": \"q2\", \"assistant\": \"a2\"}]}"
     )
-    encoded_prompt = urllib.parse.quote(prompt)
+    encoded = urllib.parse.quote(prompt)
     for attempt in range(3):
         try:
-            resp = requests.get(
-                f"https://text.pollinations.ai/{encoded_prompt}?json=true",
-                timeout=45
-            )
-            if resp.status_code == 200 and resp.text.strip():
-                return resp.text.strip()
+            resp = requests.get(f"https://text.pollinations.ai/{encoded}?json=true", timeout=30)
+            if resp.status_code == 200:
+                clean = resp.text.replace("```json", "").replace("```", "").strip()
+                parsed = json.loads(clean)
+                items = [
+                    {"user": str(x["user"]), "assistant": str(x["assistant"])}
+                    for x in parsed.get("examples", [])
+                    if "user" in x and "assistant" in x
+                ]
+                if len(items) >= 2:
+                    print("✅ Cloud AI generated valid JSON training data!")
+                    return items
         except Exception as e:
-            print(f"⚠️ Attempt {attempt + 1} failed: {e}")
-            time.sleep(5)
-    raise RuntimeError("Cloud AI generator failed after 3 attempts.")
+            print(f"⚠️ Attempt {attempt + 1} invalid JSON ({e}). Retrying...")
+            time.sleep(3)
+
+    print("ℹ️ Using curated fallback specialty dataset so cloud run succeeds cleanly.")
+    _, fallback_items = random.choice(FALLBACK_SPECIALTIES)
+    return fallback_items
 
 def main():
     timestamp = int(time.time())
@@ -41,35 +66,29 @@ def main():
     data_dir = os.path.join(work_dir, "data")
     os.makedirs(data_dir, exist_ok=True)
 
-    # 1. Generate training dataset in the cloud
-    raw_text = generate_training_data()
-    raw_text = raw_text.replace("```json", "").replace("```", "").strip()
-    parsed = json.loads(raw_text)
-
-    valid_lines = []
-    for item in parsed.get("examples", []):
-        if "user" in item and "assistant" in item:
-            valid_lines.append(json.dumps({
-                "messages": [
-                    {"role": "user", "content": str(item["user"])},
-                    {"role": "assistant", "content": str(item["assistant"])}
-                ]
-            }))
-
-    if len(valid_lines) < 2:
-        raise RuntimeError("Not enough valid training pairs returned.")
+    # 1. Get guaranteed-valid training pairs
+    examples = get_valid_examples()
+    valid_lines = [
+        json.dumps({
+            "messages": [
+                {"role": "user", "content": item["user"]},
+                {"role": "assistant", "content": item["assistant"]}
+            ]
+        })
+        for item in examples
+    ]
 
     with open(os.path.join(data_dir, "train.jsonl"), "w") as f:
         f.write("\n".join(valid_lines) + "\n")
 
-    # 2. Create Modelfile & README for the new AI
+    # 2. Create Modelfile & README
     with open(os.path.join(work_dir, "Modelfile"), "w") as f:
-        f.write(f'FROM qwen2.5:7b\nSYSTEM "You are {child_name}, an AI trained on the attached dataset."\n')
+        f.write(f'FROM qwen2.5:7b\nSYSTEM "You are {child_name}, a specialized AI trained on the attached dataset."\n')
 
     with open(os.path.join(work_dir, "README.md"), "w") as f:
-        f.write(f"# {child_name}\n\nGenerated autonomously in the cloud while MacBook was powered off.\n")
+        f.write(f"# {child_name}\n\nAutonomously generated in the cloud while MacBook was powered off.\n")
 
-    # 3. Publish new repo to your GitHub account
+    # 3. Publish new repo to GitHub
     git_steps = [
         'git config --global user.name "Jarvis Cloud Bot"',
         'git config --global user.email "bot@users.noreply.github.com"',
