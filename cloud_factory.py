@@ -3,6 +3,7 @@ import json
 import time
 import shutil
 import subprocess
+import urllib.parse
 import requests
 
 def run_command(cmd, cwd=None):
@@ -15,15 +16,23 @@ def run_command(cmd, cwd=None):
 
 def generate_training_data():
     prompt = (
-        "Invent a specific AI assistant specialty (e.g., Linux helper, SQL writer, Python debugger). "
-        "Return ONLY raw JSON with key 'examples' containing 4 pairs of {'user': '...', 'assistant': '...'}. "
+        "Invent a specific AI assistant specialty (e.g., Linux helper, SQL writer, Python debugger, Regex generator). "
+        "Reply ONLY with raw JSON containing key 'examples' with 4 pairs of {'user': '...', 'assistant': '...'}. "
         "No markdown, no backticks."
     )
-    resp = requests.post("https://text.pollinations.ai/", json={
-        "messages": [{"role": "user", "content": prompt}],
-        "model": "openai"
-    }, timeout=60)
-    return resp.text.strip()
+    encoded_prompt = urllib.parse.quote(prompt)
+    for attempt in range(3):
+        try:
+            resp = requests.get(
+                f"https://text.pollinations.ai/{encoded_prompt}?json=true",
+                timeout=45
+            )
+            if resp.status_code == 200 and resp.text.strip():
+                return resp.text.strip()
+        except Exception as e:
+            print(f"⚠️ Attempt {attempt + 1} failed: {e}")
+            time.sleep(5)
+    raise RuntimeError("Cloud AI generator failed after 3 attempts.")
 
 def main():
     timestamp = int(time.time())
@@ -39,12 +48,16 @@ def main():
 
     valid_lines = []
     for item in parsed.get("examples", []):
-        valid_lines.append(json.dumps({
-            "messages": [
-                {"role": "user", "content": str(item["user"])},
-                {"role": "assistant", "content": str(item["assistant"])}
-            ]
-        }))
+        if "user" in item and "assistant" in item:
+            valid_lines.append(json.dumps({
+                "messages": [
+                    {"role": "user", "content": str(item["user"])},
+                    {"role": "assistant", "content": str(item["assistant"])}
+                ]
+            }))
+
+    if len(valid_lines) < 2:
+        raise RuntimeError("Not enough valid training pairs returned.")
 
     with open(os.path.join(data_dir, "train.jsonl"), "w") as f:
         f.write("\n".join(valid_lines) + "\n")
