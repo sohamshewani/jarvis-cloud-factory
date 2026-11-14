@@ -1,0 +1,26 @@
+name: Autonomous AI Cloud Factory
+
+on:
+  schedule:
+    - cron: '0 * * * *'   # Runs every hour 24/7
+  workflow_dispatch:      # Also lets you click "Run" manually anytime
+
+jobs:
+  build-child-ai:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout controller code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install requests
+        run: pip install requests
+
+      - name: Run Autonomous AI Factory
+        env:
+          GH_TOKEN: ${{ secrets.REPO_CREATE_TOKEN }}
+        run: python3 cloud_factory.py
