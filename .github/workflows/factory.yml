@@ -2,7 +2,7 @@ name: Autonomous AI Cloud Factory
 
 on:
   schedule:
-    - cron: '*/5 * * * *'   # Fastest allowed GitHub interval (every 5 minutes)
+    - cron: '*/5  * * *'   # Fastest allowed GitHub interval (every 5 minutes)
   workflow_dispatch:        # Also lets you trigger manually anytime
 
 jobs:
